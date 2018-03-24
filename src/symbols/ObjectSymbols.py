@@ -16,4 +16,4 @@ class ObjectSymbols(Enum):
         return values
 
     def can_pass_through(self):
-        return self is not ObjectSymbols.BASE
+        return self is not (ObjectSymbols.BASE and ObjectSymbols.SPIKE)

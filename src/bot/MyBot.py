@@ -12,16 +12,20 @@ class MyBot(Bot):
         self.goals = [
             InBaseGoal(),
             HealthGoal(),
+            DefendDepositGoal(),
             StoreGoal(),
             HarvestGoal()
         ]
 
+        self.turn_num = 0
     def get_name(self):
         return 'Mighty McMaster Power PengAIn'
 
     def turn(self, game_state, character_state, other_bots):
         super().turn(game_state, character_state, other_bots)
+        self.turn_num += 1
 
+        print('TURN', self.turn_num)
         print('GS', game_state)
         print('CS', character_state)
         print('OB', other_bots)
@@ -50,7 +54,6 @@ class Goal:
     def action(self, bot, game_state, character_state, other_bots):
         return bot.commands.idle()
 
-
 class HealthGoal(Goal):
     def __init__(self):
         super().__init__()
@@ -58,7 +61,7 @@ class HealthGoal(Goal):
     def condition(self, bot, game_state, character_state, other_bots):
         if self.active:
             return True
-        if character_state['health'] < 15:
+        if character_state['health'] < 30:
             return True
 
     def action(self, bot, game_state, character_state, other_bots):
@@ -85,23 +88,22 @@ class HarvestGoal(Goal):
     def condition(self, bot, game_state, character_state, other_bots):
         if self.active:
             return True
-        if character_state['carrying'] <= 50 and len(listDeposits(game_state)) > 0:
+        if character_state['carrying'] <= 1000 and len(nearby_bots(3, game_state, character_state, other_bots)) == 0:
             return True
+        elif character_state['carrying'] <= 100:
+            return True
+
+        return False
 
     def action(self, bot, game_state, character_state, other_bots):
         if in_base(character_state) and character_state['carrying'] > 0:
             self.active = False
             return bot.commands.store()
         else:
-            deposits = listDeposits(game_state)
-            depoDists = []
-            for depo in deposits:
-                depoDists.append((distToGoal(game_state, character_state, other_bots, character_state['location'], depo), depo))
-
-            depoDists.sort()
-            goal = depoDists[0][1]
+            goal = closestDeposit(character_state, game_state)
 
             direction = bot.pathfinder.get_next_direction(character_state['location'], goal)
+            print(bot, direction)
             if direction:
                 return bot.commands.move(direction)
             else:
@@ -114,6 +116,8 @@ class InBaseGoal(Goal):
         super().__init__()
 
     def condition(self, bot, game_state, character_state, other_bots):
+        if self.active:
+            return True
         if in_base(character_state) and character_state['carrying'] > 0:
             return True
 
@@ -128,10 +132,13 @@ class StoreGoal(Goal):
         super().__init__()
 
     def condition(self, bot, game_state, character_state, other_bots):
-        if character_state['carrying'] > 50:
+        if self.active:
             return True
-        elif character_state['carrying'] > 10 and len(listDeposits(game_state)) == 0:
+        if character_state['carrying'] > 100 and len(nearby_bots(3, game_state, character_state, other_bots)) > 0:
             return True
+        elif character_state['carrying'] > 1000:
+            return True
+
 
     def action(self, bot, game_state, character_state, other_bots):
         if in_base(character_state):
@@ -146,19 +153,30 @@ class StoreGoal(Goal):
                 self.active = False
                 return bot.commands.idle()
 
-class AttackGoal(Goal): # Check in base
+class DefendDepositGoal(Goal): # Check in base
     def __init__(self):
         super().__init__()
 
     def condition(self, bot, game_state, character_state, other_bots):
         for nearBot in nearby_bots(5, game_state, character_state, other_bots):
-            if nearBot['health'] < character_state['health']:
+            print('NEARBOT', nearBot)
+            if character_state['health'] > 20 and nearBot['location'] == closestDeposit(character_state, game_state):
                 return True
 
     def action(self, bot, game_state, character_state, other_bots):
-        self.active = False
-        return bot.commands.store()
-        # Also heal?
+        print("DefendDepositGoal")
+        for nearBot in nearby_bots(5, game_state, character_state, other_bots):
+            if nearBot['location'] == closestDeposit(character_state, game_state):
+                goal = nearBot['location']
+                direction = bot.pathfinder.get_next_direction(character_state['location'], goal)
+
+                if direction and (not is_beside(character_state['location'], goal)):
+                    return bot.commands.move(direction)
+                elif direction:
+                    return bot.commands.attack(direction)
+                else:
+                    return bot.commands.idle()
+
 
 def in_base(cs):
     return cs['location'] == cs['base']
@@ -166,61 +184,14 @@ def in_base(cs):
 def nearby_bots(dist, game_state, character_state, other_bots):
     bots = []
     for bot in other_bots:
-        botDist = distToGoal(game_state, character_state, other_bots, character_state['location'], bot['location'])
+        botDist = distToGoal(character_state['location'], bot['location'])
         if botDist <= dist:
             bots.append(bot)
     return bots
 
-def distToGoal(game_state, character_state, other_bots, location, potential_goal):
+def distToGoal(location, potential_goal):
     return math.sqrt((location[0] - potential_goal[0])**2 + (location[1] - potential_goal[1])**2)
-    """potential_Pathfinder = Pathfinder()
-    potential_Pathfinder.set_game_state(game_state=game_state, players=(other_bots.append(character_state)))
-    atGoal = False
-    counter = 0
-    local = location
 
-    while (atGoal == False):
-        graph = potential_Pathfinder.create_graph(potential_Pathfinder.game_map)
-        path = astar_path(graph, local, potential_goal)
-        direction = convert_node_to_direction(path)
-
-        direc = potential_Pathfinder.convert_node_to_direction(path)
-
-        if (direc == 'N'):
-            local[1] += 1
-        if (direc == 'S'):
-            local[1] -= 1
-        if (direc == 'E'):
-            local[0] += 1
-        if (direc == 'W'):
-            local[0] -= 1
-
-        counter += 1
-
-        if (location == potential_goal):
-            atGoal = True
-
-    return counter
-
-def convert_node_to_direction(path):
-    if len(path) < 2:
-        return None
-
-    start = path[0]
-    next = path[1]
-    if start[1] == next[1] + 1:
-        return 'W'
-
-    elif start[1] == next[1] - 1:
-        return 'E'
-
-    elif start[0] == next[0] + 1:
-        return 'N'
-
-    else:
-        return 'S'
-
-"""
 def listDeposits(game_state):
     map = game_state.split('\n')
     mineral_Locations = []
@@ -235,3 +206,20 @@ def listDeposits(game_state):
         x += 1
 
     return mineral_Locations
+
+def closestDeposit(character_state, game_state):
+    deposits = listDeposits(game_state)
+    depoDists = []
+    for depo in deposits:
+        depoDists.append((distToGoal(character_state['location'], depo), depo))
+
+    depoDists.sort()
+    return depoDists[0][1]
+
+def is_beside(location1, location2):
+    dx = int(math.fabs(location1[0] - location2[0]))
+    dy = int(math.fabs(location1[1] - location2[1]))
+
+    return (dx == 1 and dy == 0) or (dx == 0 and dy == 1)
+
+
